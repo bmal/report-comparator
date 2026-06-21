@@ -27,9 +27,10 @@ class DeckBuilder:
         table_shape.name = name
         table_shape.table.cell(0, 0).text = "value"
 
-    def add_picture(self, name: str, image_path: Path, left: float = 1, top: float = 3) -> None:
+    def add_picture(self, name: str | None, image_path: Path, left: float = 1, top: float = 3) -> None:
         picture = self.slide.shapes.add_picture(str(image_path), Inches(left), Inches(top), Inches(1), Inches(1))
-        picture.name = name
+        if name is not None:
+            picture.name = name
 
     def add_unknown(self, name: str, left: float = 4, top: float = 1) -> None:
         shape = self.slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.RECTANGLE, Inches(left), Inches(top), Inches(1), Inches(1))

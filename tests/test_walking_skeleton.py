@@ -96,6 +96,45 @@ def test_missing_and_stray_elements_are_failures(tmp_path):
     assert all(finding["severity"] == "fail" for finding in findings)
 
 
+def test_missing_default_named_picture_in_grid_does_not_cascade_to_later_pictures(tmp_path):
+    image_path = make_png(tmp_path / "pic.png")
+    old = DeckBuilder()
+    new = DeckBuilder()
+    old.add_picture(None, image_path, left=1, top=1)
+    old.add_picture(None, image_path, left=2.5, top=1)
+    old.add_picture(None, image_path, left=4, top=1)
+    new.add_picture(None, image_path, left=1, top=1)
+    new.add_picture(None, image_path, left=4, top=1)
+    old_dir, new_dir = save_pair(tmp_path, old, new)
+
+    findings = compare_runs(old_dir, new_dir, {})["files"][0]["slides"][0]["findings"]
+
+    assert findings == [
+        {
+            "severity": "fail",
+            "type": "missing_element",
+            "element": "picture:Picture 2",
+            "message": "missing picture 'Picture 2'",
+        }
+    ]
+
+
+def test_unique_non_default_names_match_even_when_positions_and_creation_order_change(tmp_path):
+    image_path = make_png(tmp_path / "pic.png")
+    old = DeckBuilder()
+    new = DeckBuilder()
+    old.add_picture("LeftMap", image_path, left=1, top=1)
+    old.add_picture("RightMap", image_path, left=4, top=1)
+    new.add_picture("RightMap", image_path, left=1, top=1)
+    new.add_picture("LeftMap", image_path, left=4, top=1)
+    old_dir, new_dir = save_pair(tmp_path, old, new)
+
+    report = compare_runs(old_dir, new_dir, {})
+
+    assert report["summary"] == {"files": 1, "ok": 1, "warnings": 0, "failures": 0}
+    assert report["files"][0]["slides"] == []
+
+
 def test_unknown_shapes_are_reported_and_ignore_list_can_suppress_them(tmp_path):
     old = DeckBuilder()
     new = DeckBuilder()
