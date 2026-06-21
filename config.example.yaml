@@ -1,64 +1,78 @@
 # report-comparator configuration — every tunable, documented in one place.
 #
+# GENERATED from report_comparator/config.py (the schema is the source of
+# truth). Regenerate with `python -m report_comparator.docgen`.
+#
 # Copy this file, edit it, and pass it with `--config my-config.yaml`.
-# Every key below is optional: anything you omit falls back to the built-in
-# default shown here (see report_comparator/config.py:DEFAULT_CONFIG). CLI flags
-# (--mode, --quiet, --calibrate) override the values in this file.
+# Every key is optional: anything you omit falls back to the default shown
+# here. CLI flags (--mode, --quiet, --calibrate) override the file.
 
-# ── Mode ────────────────────────────────────────────────────────────────────
-# How MINOR findings are handled. This is the *only* difference between the two
-# strategies; OK and FAIL behave identically.
-#   strict  — surface MINORs as warnings to eyeball (default; decks are customer-facing)
-#   lenient — auto-accept MINORs as "accepted" audit entries (no status escalation)
-mode: strict
-
-# Drop accepted/minor entries from the report entirely (terse output once trusted).
+# ── Mode & verbosity ────────────────────────────────────────────────────────
+# How MINOR findings are handled: strict surfaces them as warnings, lenient auto-accepts them.
+# The only difference between the two strategies; OK and FAIL behave
+# identically in both.
+#   strict  — surface MINORs as warnings to eyeball (default; decks are
+#             customer-facing).
+#   lenient — auto-accept MINORs as 'accepted' audit entries with no
+#             status escalation (use once the tool is trusted).
+mode: 'strict'
+# Drop accepted/minor entries from the report entirely for terse output.
+# Failures are always kept. Equivalent to the --quiet CLI flag.
 quiet: false
-
-# Emit measured metrics for every compared element (including OK ones) so you can
-# tune the tolerances/thresholds below against real decks instead of guessing.
+# Emit measured metrics for every compared element (including OK ones) to tune thresholds.
+# Adds a 'measured_metrics' finding per element carrying the raw shift,
+# resize, picture sizes, and changed-pixel percentage. Equivalent to the
+# --calibrate CLI flag. See the calibration guidance below.
 calibrate: false
 
 # ── Filename pairing ────────────────────────────────────────────────────────
-# Regex with a named `key` group used to pair old/new decks after stripping the
-# trailing `_<timestamp>` segment. A key must be unique within each directory and
-# have exactly one counterpart in the other directory, or it becomes a file error.
+# Regex with a named `key` group used to pair old/new decks after stripping the trailing timestamp.
+# A key must be unique within each directory and have exactly one
+# counterpart in the other directory, or it becomes a file-level error
+# (the tool never silently compares two unrelated decks).
 filename_key_pattern: '^(?P<key>.+)_\d{8}(_\d{6})?\.pptx$'
 
 # ── Free-text normalization ─────────────────────────────────────────────────
-# Regexes whose matches are stripped from free text (only — never table cells)
-# before exact comparison, so generation dates / filenames aren't false positives.
+# Regexes stripped from free text (never table cells) before exact comparison.
+# Keeps generation dates / source filenames from showing up as false
+# wording changes. Never applied to table cells, which stay strictly
+# compared.
 volatile_text_patterns:
   - '\b\d{4}-\d{2}-\d{2}\b'            # ISO date, e.g. 2026-06-21
-  - '\b\d{8}(_\d{6})?\b'              # compact timestamp, e.g. 20260621_120000
+  - '\b\d{8}(_\d{6})?\b'               # compact timestamp, e.g. 20260621_120000
   - '\b[\w.-]+_\d{8}(_\d{6})?\.pptx\b' # timestamped source filename
 
-# ── Geometry tolerances (English Metric Units; 914400 EMU = 1 inch) ──────────
-# Movement/resize at or below tolerance is OK; beyond it (but on-slide, no new
-# overlap) is MINOR. Off-slide overflow is always FAIL regardless of tolerance.
+# ── Geometry tolerances (EMU; 914400 EMU = 1 inch) ──────────────────────────
+# Max element move (EMU) still treated as OK; beyond it (on-slide, no new overlap) is MINOR.
+# Measured as the largest of the left/top deltas. Off-slide overflow is
+# always FAIL regardless of this tolerance.
 shift_tolerance: 0
+# Max element size change (EMU) still treated as OK; beyond it is MINOR.
+# Measured as the largest of the width/height deltas.
 resize_tolerance: 0
 
 # ── Picture comparison ──────────────────────────────────────────────────────
 # Max percentage of changed pixels still treated as MINOR; above it is FAIL.
+# Pixels are compared after decoding and stripping metadata, so harmless
+# re-encoding noise does not register. 0.0 means any pixel change above
+# zero is a FAIL.
 picture_pixel_threshold: 0.0
 # Allowed pixel difference in decoded width/height before a dimension FAIL.
+# 0 means any decoded dimension mismatch is a FAIL (unless
+# picture_normalize_resize is on).
 picture_dimension_tolerance: 0
-# If true, resize the candidate to the reference size and compare pixels instead
-# of failing on a dimension mismatch.
+# If true, resize the candidate to the reference size and compare pixels instead of failing on a dimension mismatch.
+# Use when charts legitimately wobble by a few pixels between framework
+# versions.
 picture_normalize_resize: false
 
-# ── Overlap rules ───────────────────────────────────────────────────────────
-# Overlap is judged relative to the reference (only new-but-not-old overlaps
-# fail) EXCEPT picture-to-picture overlap, which is an absolute FAIL. The
-# pic-to-pic absolute rule is intentionally always on.
-overlap:
-  pic_pic_absolute: true
-
 # ── Ignore-list ─────────────────────────────────────────────────────────────
-# Silence specific decoration once it proves noisy. Each rule may filter by
-# `name`, `type` (picture/table/text/decoration/unknown), and/or `region`
-# (left/top/right/bottom in EMU); a shape matching all present fields is dropped.
+# Rules that silence specific shapes by name, type, and/or region.
+# Each rule may filter by `name`, `type`
+# (picture/table/text/decoration/unknown), and/or `region`
+# (left/top/right/bottom in EMU). A shape matching every field present in
+# a rule is dropped before comparison. Grow this from --calibrate output
+# when decoration proves noisy.
 ignore_list: []
 #   - name: CompanyLogo
 #   - type: decoration
