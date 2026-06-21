@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from io import BytesIO
-from itertools import permutations
 from pathlib import Path
 import re
 from typing import Any, Iterable
@@ -153,7 +152,7 @@ def _compare_slides(
                 )
             )
 
-    findings.extend(_overlap_findings(matched))
+    findings.extend(_overlap_findings(matched, stray))
     findings = _apply_report_options(findings, config)
 
     status = _status_from_findings(findings)
@@ -250,10 +249,19 @@ def _height(bounds: dict[str, int]) -> int:
     return bounds["bottom"] - bounds["top"]
 
 
-def _overlap_findings(matched: list[tuple[dict[str, Any], dict[str, Any]]]) -> list[dict[str, str]]:
+def _overlap_findings(
+    matched: list[tuple[dict[str, Any], dict[str, Any]]], stray: list[dict[str, Any]]
+) -> list[dict[str, str]]:
+    # The overlap graph is judged on the *new* slide. Matched elements carry their
+    # old counterpart (used to tell whether an overlap already existed in the
+    # reference); stray/inserted elements have no counterpart, so any overlap they
+    # introduce is by definition new.
+    nodes: list[tuple[dict[str, Any] | None, dict[str, Any]]] = [(old, new) for old, new in matched]
+    nodes.extend((None, element) for element in stray)
+
     findings: list[dict[str, str]] = []
-    for left_index, (old_left, new_left) in enumerate(matched):
-        for old_right, new_right in matched[left_index + 1 :]:
+    for left_index, (old_left, new_left) in enumerate(nodes):
+        for old_right, new_right in nodes[left_index + 1 :]:
             if not _bounds_overlap(new_left["bounds"], new_right["bounds"]):
                 continue
             if new_left["kind"] == "picture" and new_right["kind"] == "picture":
@@ -265,7 +273,11 @@ def _overlap_findings(matched: list[tuple[dict[str, Any], dict[str, Any]]]) -> l
                         f"pictures overlap: '{new_left['name']}' and '{new_right['name']}'",
                     )
                 )
-            elif not _bounds_overlap(old_left["bounds"], old_right["bounds"]):
+            elif (
+                old_left is None
+                or old_right is None
+                or not _bounds_overlap(old_left["bounds"], old_right["bounds"])
+            ):
                 findings.append(
                     _finding(
                         "fail",
@@ -334,37 +346,44 @@ def _optimal_group_match(
     old_group: list[dict[str, Any]], new_group: list[dict[str, Any]]
 ) -> tuple[list[tuple[dict[str, Any], dict[str, Any]]], list[dict[str, Any]], list[dict[str, Any]]]:
     if not old_group:
-        return [], [], new_group
+        return [], [], list(new_group)
     if not new_group:
-        return [], old_group, []
+        return [], list(old_group), []
 
-    match_count = min(len(old_group), len(new_group))
-    best_pairs: list[tuple[int, int]] = []
-    best_cost: int | None = None
+    # Bounded greedy assignment within a type-class: enumerate only *eligible*
+    # candidate pairs (polynomial, never factorial), sort by ascending cost, and
+    # claim each old/new exactly once. A pair is eligible when the content matches
+    # (a moved-but-identical element) or the regions still overlap (same slot, new
+    # content). Ineligible pairs are never forced together, so a vanished element
+    # replaced by an unrelated one elsewhere is reported as missing + stray rather
+    # than masquerading as a content change.
+    candidates: list[tuple[int, int, int]] = []
+    for old_index, old_element in enumerate(old_group):
+        for new_index, new_element in enumerate(new_group):
+            if not _match_eligible(old_element, new_element):
+                continue
+            candidates.append((_match_cost(old_element, new_element), old_index, new_index))
+    candidates.sort()
 
-    if len(old_group) <= len(new_group):
-        old_indexes = tuple(range(len(old_group)))
-        for new_indexes in permutations(range(len(new_group)), match_count):
-            pairs = list(zip(old_indexes, new_indexes))
-            cost = sum(_match_cost(old_group[old_index], new_group[new_index]) for old_index, new_index in pairs)
-            if best_cost is None or cost < best_cost:
-                best_cost = cost
-                best_pairs = pairs
-    else:
-        new_indexes = tuple(range(len(new_group)))
-        for old_indexes in permutations(range(len(old_group)), match_count):
-            pairs = list(zip(old_indexes, new_indexes))
-            cost = sum(_match_cost(old_group[old_index], new_group[new_index]) for old_index, new_index in pairs)
-            if best_cost is None or cost < best_cost:
-                best_cost = cost
-                best_pairs = pairs
+    matched_old: set[int] = set()
+    matched_new: set[int] = set()
+    matched: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for _cost, old_index, new_index in candidates:
+        if old_index in matched_old or new_index in matched_new:
+            continue
+        matched_old.add(old_index)
+        matched_new.add(new_index)
+        matched.append((old_group[old_index], new_group[new_index]))
 
-    matched_old = {old_index for old_index, _new_index in best_pairs}
-    matched_new = {new_index for _old_index, new_index in best_pairs}
-    matched = [(old_group[old_index], new_group[new_index]) for old_index, new_index in best_pairs]
     missing = [element for index, element in enumerate(old_group) if index not in matched_old]
     stray = [element for index, element in enumerate(new_group) if index not in matched_new]
     return matched, missing, stray
+
+
+def _match_eligible(old_element: dict[str, Any], new_element: dict[str, Any]) -> bool:
+    if old_element["content_key"] == new_element["content_key"]:
+        return True
+    return _bounds_overlap(old_element["bounds"], new_element["bounds"])
 
 
 def _match_cost(old_element: dict[str, Any], new_element: dict[str, Any]) -> int:
@@ -433,8 +452,11 @@ def _compare_picture_content(
 ) -> dict[str, str] | None:
     old_image = _decoded_image(old_element["image_blob"])
     new_image = _decoded_image(new_element["image_blob"])
-    if _is_blank(new_image) and not _is_blank(old_image):
-        return _finding("fail", "picture_blank", old_element["element"], "picture is blank where reference had content")
+    # A blank candidate picture is always a regression (PRD: blank pictures FAIL),
+    # whether or not the reference happened to be blank too.
+    if _is_blank(new_image):
+        detail = "" if _is_blank(old_image) else " where reference had content"
+        return _finding("fail", "picture_blank", old_element["element"], f"picture is blank{detail}")
 
     if old_image.size != new_image.size:
         width_delta = abs(old_image.width - new_image.width)

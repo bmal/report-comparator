@@ -44,11 +44,38 @@ class DeckBuilder:
         return table_shape
 
     def add_picture(
-        self, name: str | None, image_path: Path, left: float = 1, top: float = 3, width: float = 1, height: float = 1
-    ) -> None:
+        self,
+        name: str | None,
+        image_path: Path,
+        left: float = 1,
+        top: float = 3,
+        width: float = 1,
+        height: float = 1,
+        alt_text: str | None = None,
+    ):
         picture = self.slide.shapes.add_picture(str(image_path), Inches(left), Inches(top), Inches(width), Inches(height))
         if name is not None:
             picture.name = name
+        if alt_text is not None:
+            set_alt_text(picture, alt_text)
+        return picture
+
+    def add_group(
+        self,
+        text_name: str,
+        text: str,
+        picture_name: str,
+        image_path: Path,
+        text_pos: tuple[float, float, float, float] = (1, 1, 3, 0.5),
+        picture_pos: tuple[float, float, float, float] = (1, 2, 1, 1),
+    ):
+        group = self.slide.shapes.add_group_shape()
+        box = group.shapes.add_textbox(*(Inches(value) for value in text_pos))
+        box.name = text_name
+        box.text = text
+        picture = group.shapes.add_picture(str(image_path), *(Inches(value) for value in picture_pos))
+        picture.name = picture_name
+        return group
 
     def add_unknown(self, name: str, left: float = 4, top: float = 1, width: float = 1, height: float = 1) -> None:
         shape = self.slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.RECTANGLE, Inches(left), Inches(top), Inches(width), Inches(height))
@@ -59,6 +86,11 @@ class DeckBuilder:
 
     def save(self, path: Path) -> None:
         self.presentation.save(path)
+
+
+def set_alt_text(shape, descr: str) -> None:
+    c_nv_pr = shape._element.xpath(".//p:cNvPr")[0]
+    c_nv_pr.set("descr", descr)
 
 
 def make_png(
