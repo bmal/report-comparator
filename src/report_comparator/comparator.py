@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-import re
 from collections import defaultdict
+from io import BytesIO
 from itertools import permutations
 from pathlib import Path
+import re
 from typing import Any, Iterable
 
+import numpy as np
+from PIL import Image
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
@@ -105,7 +108,11 @@ def _compare_slides(index: int, old_slide: Any, new_slide: Any, config: dict[str
     for element in stray:
         findings.append(_finding("fail", "stray_element", element["element"], f"stray {element['kind']} '{element['name']}'"))
 
-    for old_element, _new_element in matched:
+    for old_element, new_element in matched:
+        if old_element["kind"] == "picture":
+            finding = _compare_picture_content(old_element, new_element, config)
+            if finding:
+                findings.append(finding)
         if old_element["kind"] == "unknown":
             findings.append(
                 _finding(
@@ -239,6 +246,7 @@ def _element(shape: Any) -> dict[str, Any]:
         "stable_id": stable_id,
         "shape_type": shape_type,
         "content_key": _content_key(shape, kind),
+        "image_blob": _image_blob(shape, kind),
         "bounds": {
             "left": int(shape.left),
             "top": int(shape.top),
@@ -249,12 +257,64 @@ def _element(shape: Any) -> dict[str, Any]:
 
 
 def _stable_identifier(shape: Any, name: str) -> str | None:
+    if name and name != "<unnamed>" and not _is_default_shape_name(name):
+        return name
     alt_text = _alt_text(shape)
     if alt_text:
         return alt_text
-    if name and name != "<unnamed>" and not _is_default_shape_name(name):
-        return name
     return None
+
+
+def _compare_picture_content(
+    old_element: dict[str, Any], new_element: dict[str, Any], config: dict[str, Any]
+) -> dict[str, str] | None:
+    old_image = _decoded_image(old_element["image_blob"])
+    new_image = _decoded_image(new_element["image_blob"])
+    if _is_blank(new_image) and not _is_blank(old_image):
+        return _finding("fail", "picture_blank", old_element["element"], "picture is blank where reference had content")
+
+    if old_image.size != new_image.size:
+        width_delta = abs(old_image.width - new_image.width)
+        height_delta = abs(old_image.height - new_image.height)
+        tolerance = int(config.get("picture_dimension_tolerance", 0))
+        if not config.get("picture_normalize_resize", False) and max(width_delta, height_delta) > tolerance:
+            return _finding(
+                "fail",
+                "picture_dimension_changed",
+                old_element["element"],
+                f"picture dimensions changed from {old_image.size[0]}x{old_image.size[1]} to {new_image.size[0]}x{new_image.size[1]}",
+            )
+        new_image = new_image.resize(old_image.size)
+
+    changed_percent = _changed_pixel_percent(old_image, new_image)
+    if changed_percent == 0:
+        return None
+    threshold = float(config.get("picture_pixel_threshold", 0.0))
+    severity = "minor" if changed_percent <= threshold else "fail"
+    return _finding(
+        severity,
+        "picture_pixels_changed",
+        old_element["element"],
+        f"picture pixels changed by {changed_percent:.2f}% (threshold {threshold:.2f}%)",
+    )
+
+
+def _decoded_image(blob: bytes) -> Image.Image:
+    return Image.open(BytesIO(blob)).convert("RGBA")
+
+
+def _is_blank(image: Image.Image) -> bool:
+    pixels = np.asarray(image)
+    if pixels[:, :, 3].max() == 0:
+        return True
+    return bool(np.all(pixels[:, :, :3] == 255))
+
+
+def _changed_pixel_percent(old_image: Image.Image, new_image: Image.Image) -> float:
+    old_pixels = np.asarray(old_image)
+    new_pixels = np.asarray(new_image)
+    changed = np.any(old_pixels != new_pixels, axis=2)
+    return float(changed.sum() * 100 / changed.size)
 
 
 def _alt_text(shape: Any) -> str | None:
@@ -277,6 +337,12 @@ def _content_key(shape: Any, kind: str) -> str:
     if kind == "text":
         return shape.text_frame.text.strip()
     return ""
+
+
+def _image_blob(shape: Any, kind: str) -> bytes | None:
+    if kind == "picture":
+        return getattr(getattr(shape, "image", None), "blob", None)
+    return None
 
 
 def _kind(shape: Any) -> str:

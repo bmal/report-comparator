@@ -11,6 +11,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "mode": "strict",
     "filename_key_pattern": r"^(?P<key>.+)_\d{8}(_\d{6})?\.pptx$",
     "ignore_list": [],
+    "picture_pixel_threshold": 0.0,
+    "picture_dimension_tolerance": 0,
+    "picture_normalize_resize": False,
 }
 
 

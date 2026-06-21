@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, PngImagePlugin
 from pptx import Presentation
 from pptx.enum.shapes import MSO_AUTO_SHAPE_TYPE
 from pptx.util import Inches
@@ -43,6 +43,20 @@ class DeckBuilder:
         self.presentation.save(path)
 
 
-def make_png(path: Path, color: tuple[int, int, int] = (255, 0, 0)) -> Path:
-    Image.new("RGB", (10, 10), color).save(path)
+def make_png(
+    path: Path,
+    color: tuple[int, int, int] = (255, 0, 0),
+    size: tuple[int, int] = (10, 10),
+    changed_pixels: dict[tuple[int, int], tuple[int, int, int]] | None = None,
+    metadata: dict[str, str] | None = None,
+) -> Path:
+    image = Image.new("RGB", size, color)
+    for xy, pixel in (changed_pixels or {}).items():
+        image.putpixel(xy, pixel)
+    pnginfo = None
+    if metadata:
+        pnginfo = PngImagePlugin.PngInfo()
+        for key, value in metadata.items():
+            pnginfo.add_text(key, value)
+    image.save(path, pnginfo=pnginfo)
     return path
