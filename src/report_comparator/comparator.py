@@ -129,10 +129,18 @@ def _compare_slides(
             finding = _compare_text_content(old_element, new_element, config)
             if finding:
                 findings.append(finding)
+            else:
+                formatting_finding = _compare_text_formatting(old_element, new_element)
+                if formatting_finding:
+                    findings.append(formatting_finding)
         if old_element["kind"] == "table":
             finding = _compare_table_content(old_element, new_element)
             if finding:
                 findings.append(finding)
+            else:
+                formatting_finding = _compare_table_formatting(old_element, new_element)
+                if formatting_finding:
+                    findings.append(formatting_finding)
         if old_element["kind"] == "unknown":
             findings.append(
                 _finding(
@@ -343,6 +351,8 @@ def _element(shape: Any) -> dict[str, Any]:
         "content_key": _content_key(shape, kind),
         "text": shape.text_frame.text if kind == "text" else "",
         "table_cells": _table_cells(shape, kind),
+        "table_formatting": _table_formatting(shape, kind),
+        "text_formatting": _text_formatting(shape, kind),
         "image_blob": _image_blob(shape, kind),
         "bounds": {
             "left": int(shape.left),
@@ -406,6 +416,12 @@ def _compare_text_content(
     return _finding("fail", "text_changed", old_element["element"], "text wording changed after volatile-token normalization")
 
 
+def _compare_text_formatting(old_element: dict[str, Any], new_element: dict[str, Any]) -> dict[str, str] | None:
+    if old_element["text_formatting"] == new_element["text_formatting"]:
+        return None
+    return _finding("minor", "text_formatting_changed", old_element["element"], "text formatting changed")
+
+
 def _compare_table_content(old_element: dict[str, Any], new_element: dict[str, Any]) -> dict[str, str] | None:
     old_cells = old_element["table_cells"]
     new_cells = new_element["table_cells"]
@@ -433,6 +449,12 @@ def _compare_table_content(old_element: dict[str, Any], new_element: dict[str, A
                     f"table cell R{row_index + 1}C{column_index + 1} changed",
                 )
     return None
+
+
+def _compare_table_formatting(old_element: dict[str, Any], new_element: dict[str, Any]) -> dict[str, str] | None:
+    if old_element["table_formatting"] == new_element["table_formatting"]:
+        return None
+    return _finding("minor", "table_formatting_changed", old_element["element"], "table formatting changed")
 
 
 def _table_shape(cells: list[list[str]]) -> tuple[int, int]:
@@ -502,6 +524,45 @@ def _table_cells(shape: Any, kind: str) -> list[list[str]]:
     if kind != "table":
         return []
     return [[cell.text.strip() for cell in row.cells] for row in shape.table.rows]
+
+
+def _table_formatting(shape: Any, kind: str) -> tuple[tuple[tuple[Any, ...], ...], ...]:
+    if kind != "table":
+        return ()
+    rows = []
+    for row in shape.table.rows:
+        rows.append(tuple(_cell_formatting(cell) for cell in row.cells))
+    return tuple(rows)
+
+
+def _cell_formatting(cell: Any) -> tuple[Any, ...]:
+    runs = tuple(_run_formatting(run) for paragraph in cell.text_frame.paragraphs for run in paragraph.runs)
+    return (_fill_color(cell), runs)
+
+
+def _fill_color(cell: Any) -> str | None:
+    try:
+        return str(cell.fill.fore_color.rgb)
+    except (AttributeError, TypeError):
+        return None
+
+
+def _text_formatting(shape: Any, kind: str) -> tuple[tuple[Any, ...], ...]:
+    if kind != "text":
+        return ()
+    return tuple(_run_formatting(run) for paragraph in shape.text_frame.paragraphs for run in paragraph.runs)
+
+
+def _run_formatting(run: Any) -> tuple[Any, ...]:
+    font = run.font
+    return (font.name, font.size, font.bold, font.italic, _font_color(font))
+
+
+def _font_color(font: Any) -> str | None:
+    try:
+        return str(font.color.rgb)
+    except (AttributeError, TypeError):
+        return None
 
 
 def _image_blob(shape: Any, kind: str) -> bytes | None:
