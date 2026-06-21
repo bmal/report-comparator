@@ -86,7 +86,14 @@ def _compare_decks(key: str, old_path: Path, new_path: Path, config: dict[str, A
         )
 
     for index in range(min(old_count, new_count)):
-        slide = _compare_slides(index + 1, old_deck.slides[index], new_deck.slides[index], config)
+        slide = _compare_slides(
+            index + 1,
+            old_deck.slides[index],
+            new_deck.slides[index],
+            int(new_deck.slide_width),
+            int(new_deck.slide_height),
+            config,
+        )
         if slide["findings"]:
             file_result["slides"].append(slide)
 
@@ -97,7 +104,9 @@ def _compare_decks(key: str, old_path: Path, new_path: Path, config: dict[str, A
     return file_result
 
 
-def _compare_slides(index: int, old_slide: Any, new_slide: Any, config: dict[str, Any]) -> dict[str, Any]:
+def _compare_slides(
+    index: int, old_slide: Any, new_slide: Any, slide_width: int, slide_height: int, config: dict[str, Any]
+) -> dict[str, Any]:
     old_elements = _visible_elements(old_slide.shapes, config)
     new_elements = _visible_elements(new_slide.shapes, config)
     findings: list[dict[str, str]] = []
@@ -109,6 +118,9 @@ def _compare_slides(index: int, old_slide: Any, new_slide: Any, config: dict[str
         findings.append(_finding("fail", "stray_element", element["element"], f"stray {element['kind']} '{element['name']}'"))
 
     for old_element, new_element in matched:
+        placement_finding = _compare_placement(old_element, new_element, slide_width, slide_height, config)
+        if placement_finding:
+            findings.append(placement_finding)
         if old_element["kind"] == "picture":
             finding = _compare_picture_content(old_element, new_element, config)
             if finding:
@@ -123,8 +135,83 @@ def _compare_slides(index: int, old_slide: Any, new_slide: Any, config: dict[str
                 )
             )
 
+    findings.extend(_overlap_findings(matched))
+
     status = "fail" if any(f["severity"] == "fail" for f in findings) else "warning" if findings else "ok"
     return {"index": index, "status": status, "findings": findings}
+
+
+def _compare_placement(
+    old_element: dict[str, Any], new_element: dict[str, Any], slide_width: int, slide_height: int, config: dict[str, Any]
+) -> dict[str, str] | None:
+    if _off_slide(new_element["bounds"], slide_width, slide_height):
+        return _finding("fail", "off_slide", old_element["element"], "element extends past slide bounds")
+
+    shift_tolerance = int(config.get("shift_tolerance", 0))
+    resize_tolerance = int(config.get("resize_tolerance", 0))
+    old_bounds = old_element["bounds"]
+    new_bounds = new_element["bounds"]
+    shift_delta = max(abs(old_bounds["left"] - new_bounds["left"]), abs(old_bounds["top"] - new_bounds["top"]))
+    resize_delta = max(
+        abs(_width(old_bounds) - _width(new_bounds)),
+        abs(_height(old_bounds) - _height(new_bounds)),
+    )
+    if shift_delta <= shift_tolerance and resize_delta <= resize_tolerance:
+        return None
+    return _finding(
+        "minor",
+        "placement_changed",
+        old_element["element"],
+        f"element moved/resized beyond tolerance (shift {shift_delta}, resize {resize_delta})",
+    )
+
+
+def _off_slide(bounds: dict[str, int], slide_width: int, slide_height: int) -> bool:
+    return bounds["left"] < 0 or bounds["top"] < 0 or bounds["right"] > slide_width or bounds["bottom"] > slide_height
+
+
+def _width(bounds: dict[str, int]) -> int:
+    return bounds["right"] - bounds["left"]
+
+
+def _height(bounds: dict[str, int]) -> int:
+    return bounds["bottom"] - bounds["top"]
+
+
+def _overlap_findings(matched: list[tuple[dict[str, Any], dict[str, Any]]]) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    for left_index, (old_left, new_left) in enumerate(matched):
+        for old_right, new_right in matched[left_index + 1 :]:
+            if not _bounds_overlap(new_left["bounds"], new_right["bounds"]):
+                continue
+            if new_left["kind"] == "picture" and new_right["kind"] == "picture":
+                findings.append(
+                    _finding(
+                        "fail",
+                        "picture_overlap",
+                        f"{new_left['element']} / {new_right['element']}",
+                        f"pictures overlap: '{new_left['name']}' and '{new_right['name']}'",
+                    )
+                )
+            elif not _bounds_overlap(old_left["bounds"], old_right["bounds"]):
+                findings.append(
+                    _finding(
+                        "fail",
+                        "new_overlap",
+                        f"{new_left['element']} / {new_right['element']}",
+                        f"new overlap between '{new_left['name']}' and '{new_right['name']}'",
+                    )
+                )
+    return findings
+
+
+def _bounds_overlap(left: dict[str, int], right: dict[str, int]) -> bool:
+    return (
+        left["left"] < right["right"]
+        and left["right"] > right["left"]
+        and left["top"] < right["bottom"]
+        and left["bottom"] > right["top"]
+    )
 
 
 def _match_elements(

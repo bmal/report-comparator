@@ -14,6 +14,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "picture_pixel_threshold": 0.0,
     "picture_dimension_tolerance": 0,
     "picture_normalize_resize": False,
+    "shift_tolerance": 0,
+    "resize_tolerance": 0,
 }
 
 

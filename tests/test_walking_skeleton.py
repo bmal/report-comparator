@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 
@@ -119,7 +120,7 @@ def test_missing_default_named_picture_in_grid_does_not_cascade_to_later_picture
     ]
 
 
-def test_unique_non_default_names_match_even_when_positions_and_creation_order_change(tmp_path):
+def test_unique_non_default_names_match_without_missing_or_content_cascade_when_positions_change(tmp_path):
     image_path = make_png(tmp_path / "pic.png")
     old = DeckBuilder()
     new = DeckBuilder()
@@ -131,8 +132,9 @@ def test_unique_non_default_names_match_even_when_positions_and_creation_order_c
 
     report = compare_runs(old_dir, new_dir, {})
 
-    assert report["summary"] == {"files": 1, "ok": 1, "warnings": 0, "failures": 0}
-    assert report["files"][0]["slides"] == []
+    findings = report["files"][0]["slides"][0]["findings"]
+    assert report["summary"] == {"files": 1, "ok": 0, "warnings": 1, "failures": 0}
+    assert {finding["type"] for finding in findings} == {"placement_changed"}
 
 
 def test_unknown_shapes_are_reported_and_ignore_list_can_suppress_them(tmp_path):
@@ -194,6 +196,7 @@ def test_cli_loads_config_and_writes_report_with_cli_mode_override(tmp_path):
             str(out),
         ],
         check=True,
+        env={**os.environ, "PYTHONPATH": "src"},
     )
 
     assert json.loads(out.read_text(encoding="utf-8"))["summary"]["ok"] == 1

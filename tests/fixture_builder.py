@@ -17,23 +17,27 @@ class DeckBuilder:
     def slide(self):
         return self.presentation.slides[0]
 
-    def add_text(self, name: str, text: str = "Hello", left: float = 1, top: float = 1) -> None:
-        box = self.slide.shapes.add_textbox(Inches(left), Inches(top), Inches(2), Inches(0.5))
+    def add_text(
+        self, name: str, text: str = "Hello", left: float = 1, top: float = 1, width: float = 2, height: float = 0.5
+    ) -> None:
+        box = self.slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
         box.name = name
         box.text = text
 
-    def add_table(self, name: str, left: float = 1, top: float = 2) -> None:
-        table_shape = self.slide.shapes.add_table(1, 1, Inches(left), Inches(top), Inches(2), Inches(0.5))
+    def add_table(self, name: str, left: float = 1, top: float = 2, width: float = 2, height: float = 0.5) -> None:
+        table_shape = self.slide.shapes.add_table(1, 1, Inches(left), Inches(top), Inches(width), Inches(height))
         table_shape.name = name
         table_shape.table.cell(0, 0).text = "value"
 
-    def add_picture(self, name: str | None, image_path: Path, left: float = 1, top: float = 3) -> None:
-        picture = self.slide.shapes.add_picture(str(image_path), Inches(left), Inches(top), Inches(1), Inches(1))
+    def add_picture(
+        self, name: str | None, image_path: Path, left: float = 1, top: float = 3, width: float = 1, height: float = 1
+    ) -> None:
+        picture = self.slide.shapes.add_picture(str(image_path), Inches(left), Inches(top), Inches(width), Inches(height))
         if name is not None:
             picture.name = name
 
-    def add_unknown(self, name: str, left: float = 4, top: float = 1) -> None:
-        shape = self.slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.RECTANGLE, Inches(left), Inches(top), Inches(1), Inches(1))
+    def add_unknown(self, name: str, left: float = 4, top: float = 1, width: float = 1, height: float = 1) -> None:
+        shape = self.slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.RECTANGLE, Inches(left), Inches(top), Inches(width), Inches(height))
         shape.name = name
 
     def add_slide(self) -> None:
