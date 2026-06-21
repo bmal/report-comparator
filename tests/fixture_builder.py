@@ -24,10 +24,12 @@ class DeckBuilder:
         box.name = name
         box.text = text
 
-    def add_table(self, name: str, left: float = 1, top: float = 2, width: float = 2, height: float = 0.5) -> None:
+    def add_table(
+        self, name: str, text: str = "value", left: float = 1, top: float = 2, width: float = 2, height: float = 0.5
+    ) -> None:
         table_shape = self.slide.shapes.add_table(1, 1, Inches(left), Inches(top), Inches(width), Inches(height))
         table_shape.name = name
-        table_shape.table.cell(0, 0).text = "value"
+        table_shape.table.cell(0, 0).text = text
 
     def add_picture(
         self, name: str | None, image_path: Path, left: float = 1, top: float = 3, width: float = 1, height: float = 1

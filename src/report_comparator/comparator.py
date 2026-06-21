@@ -125,6 +125,10 @@ def _compare_slides(
             finding = _compare_picture_content(old_element, new_element, config)
             if finding:
                 findings.append(finding)
+        if old_element["kind"] == "text":
+            finding = _compare_text_content(old_element, new_element, config)
+            if finding:
+                findings.append(finding)
         if old_element["kind"] == "unknown":
             findings.append(
                 _finding(
@@ -333,6 +337,7 @@ def _element(shape: Any) -> dict[str, Any]:
         "stable_id": stable_id,
         "shape_type": shape_type,
         "content_key": _content_key(shape, kind),
+        "text": shape.text_frame.text if kind == "text" else "",
         "image_blob": _image_blob(shape, kind),
         "bounds": {
             "left": int(shape.left),
@@ -384,6 +389,31 @@ def _compare_picture_content(
         old_element["element"],
         f"picture pixels changed by {changed_percent:.2f}% (threshold {threshold:.2f}%)",
     )
+
+
+def _compare_text_content(
+    old_element: dict[str, Any], new_element: dict[str, Any], config: dict[str, Any]
+) -> dict[str, str] | None:
+    old_text = _normalize_free_text(old_element["text"], config)
+    new_text = _normalize_free_text(new_element["text"], config)
+    if old_text == new_text:
+        return None
+    return _finding("fail", "text_changed", old_element["element"], "text wording changed after volatile-token normalization")
+
+
+def _normalize_free_text(text: str, config: dict[str, Any]) -> str:
+    patterns = config.get(
+        "volatile_text_patterns",
+        [
+            r"\b\d{4}-\d{2}-\d{2}\b",
+            r"\b\d{8}(_\d{6})?\b",
+            r"\b[\w.-]+_\d{8}(_\d{6})?\.pptx\b",
+        ],
+    )
+    normalized = text.strip()
+    for pattern in patterns:
+        normalized = re.sub(pattern, "", normalized)
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def _decoded_image(blob: bytes) -> Image.Image:

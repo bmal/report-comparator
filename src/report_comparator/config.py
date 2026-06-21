@@ -16,6 +16,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "picture_normalize_resize": False,
     "shift_tolerance": 0,
     "resize_tolerance": 0,
+    "volatile_text_patterns": [
+        r"\b\d{4}-\d{2}-\d{2}\b",
+        r"\b\d{8}(_\d{6})?\b",
+        r"\b[\w.-]+_\d{8}(_\d{6})?\.pptx\b",
+    ],
 }
 
 
