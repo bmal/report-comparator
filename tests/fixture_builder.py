@@ -25,11 +25,21 @@ class DeckBuilder:
         box.text = text
 
     def add_table(
-        self, name: str, text: str = "value", left: float = 1, top: float = 2, width: float = 2, height: float = 0.5
+        self,
+        name: str,
+        text: str = "value",
+        left: float = 1,
+        top: float = 2,
+        width: float = 2,
+        height: float = 0.5,
+        values: list[list[str]] | None = None,
     ) -> None:
-        table_shape = self.slide.shapes.add_table(1, 1, Inches(left), Inches(top), Inches(width), Inches(height))
+        values = values or [[text]]
+        table_shape = self.slide.shapes.add_table(len(values), len(values[0]), Inches(left), Inches(top), Inches(width), Inches(height))
         table_shape.name = name
-        table_shape.table.cell(0, 0).text = text
+        for row_index, row in enumerate(values):
+            for column_index, value in enumerate(row):
+                table_shape.table.cell(row_index, column_index).text = value
 
     def add_picture(
         self, name: str | None, image_path: Path, left: float = 1, top: float = 3, width: float = 1, height: float = 1

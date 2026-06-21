@@ -129,6 +129,10 @@ def _compare_slides(
             finding = _compare_text_content(old_element, new_element, config)
             if finding:
                 findings.append(finding)
+        if old_element["kind"] == "table":
+            finding = _compare_table_content(old_element, new_element)
+            if finding:
+                findings.append(finding)
         if old_element["kind"] == "unknown":
             findings.append(
                 _finding(
@@ -338,6 +342,7 @@ def _element(shape: Any) -> dict[str, Any]:
         "shape_type": shape_type,
         "content_key": _content_key(shape, kind),
         "text": shape.text_frame.text if kind == "text" else "",
+        "table_cells": _table_cells(shape, kind),
         "image_blob": _image_blob(shape, kind),
         "bounds": {
             "left": int(shape.left),
@@ -401,6 +406,43 @@ def _compare_text_content(
     return _finding("fail", "text_changed", old_element["element"], "text wording changed after volatile-token normalization")
 
 
+def _compare_table_content(old_element: dict[str, Any], new_element: dict[str, Any]) -> dict[str, str] | None:
+    old_cells = old_element["table_cells"]
+    new_cells = new_element["table_cells"]
+    old_shape = _table_shape(old_cells)
+    new_shape = _table_shape(new_cells)
+    if old_shape != new_shape:
+        return _finding(
+            "fail",
+            "table_structure_changed",
+            old_element["element"],
+            f"table structure changed from {old_shape[0]}x{old_shape[1]} to {new_shape[0]}x{new_shape[1]}",
+        )
+    if _has_any_data(old_cells) and not _has_any_data(new_cells):
+        return _finding("fail", "table_blank", old_element["element"], "table is blank where reference had data")
+    for row_index, (old_row, new_row) in enumerate(zip(old_cells, new_cells, strict=True)):
+        if _has_any_data([old_row]) and not _has_any_data([new_row]):
+            return _finding("fail", "table_empty_row", old_element["element"], f"table row {row_index + 1} is empty")
+    for row_index, old_row in enumerate(old_cells):
+        for column_index, old_text in enumerate(old_row):
+            if old_text != new_cells[row_index][column_index]:
+                return _finding(
+                    "fail",
+                    "table_cell_changed",
+                    old_element["element"],
+                    f"table cell R{row_index + 1}C{column_index + 1} changed",
+                )
+    return None
+
+
+def _table_shape(cells: list[list[str]]) -> tuple[int, int]:
+    return len(cells), len(cells[0]) if cells else 0
+
+
+def _has_any_data(cells: list[list[str]]) -> bool:
+    return any(text for row in cells for text in row)
+
+
 def _normalize_free_text(text: str, config: dict[str, Any]) -> str:
     patterns = config.get(
         "volatile_text_patterns",
@@ -454,6 +496,12 @@ def _content_key(shape: Any, kind: str) -> str:
     if kind == "text":
         return shape.text_frame.text.strip()
     return ""
+
+
+def _table_cells(shape: Any, kind: str) -> list[list[str]]:
+    if kind != "table":
+        return []
+    return [[cell.text.strip() for cell in row.cells] for row in shape.table.rows]
 
 
 def _image_blob(shape: Any, kind: str) -> bytes | None:
