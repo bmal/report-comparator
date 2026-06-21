@@ -9,6 +9,8 @@ import yaml
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "mode": "strict",
+    "quiet": False,
+    "calibrate": False,
     "filename_key_pattern": r"^(?P<key>.+)_\d{8}(_\d{6})?\.pptx$",
     "ignore_list": [],
     "picture_pixel_threshold": 0.0,

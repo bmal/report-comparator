@@ -109,7 +109,7 @@ def _compare_slides(
 ) -> dict[str, Any]:
     old_elements = _visible_elements(old_slide.shapes, config)
     new_elements = _visible_elements(new_slide.shapes, config)
-    findings: list[dict[str, str]] = []
+    findings: list[dict[str, Any]] = []
     matched, missing, stray = _match_elements(old_elements, new_elements)
 
     for element in missing:
@@ -118,6 +118,8 @@ def _compare_slides(
         findings.append(_finding("fail", "stray_element", element["element"], f"stray {element['kind']} '{element['name']}'"))
 
     for old_element, new_element in matched:
+        if config.get("calibrate", False):
+            findings.append(_metric_finding(old_element, new_element))
         placement_finding = _compare_placement(old_element, new_element, slide_width, slide_height, config)
         if placement_finding:
             findings.append(placement_finding)
@@ -152,9 +154,33 @@ def _compare_slides(
             )
 
     findings.extend(_overlap_findings(matched))
+    findings = _apply_report_options(findings, config)
 
-    status = "fail" if any(f["severity"] == "fail" for f in findings) else "warning" if findings else "ok"
+    status = _status_from_findings(findings)
     return {"index": index, "status": status, "findings": findings}
+
+
+def _apply_report_options(findings: list[dict[str, Any]], config: dict[str, Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    mode = config.get("mode", "strict")
+    quiet = bool(config.get("quiet", False))
+
+    for finding in findings:
+        finding = dict(finding)
+        if mode == "lenient" and finding["severity"] == "minor":
+            finding["severity"] = "accepted"
+        if quiet and finding["severity"] in {"minor", "accepted"}:
+            continue
+        normalized.append(finding)
+    return normalized
+
+
+def _status_from_findings(findings: list[dict[str, Any]]) -> str:
+    if any(finding["severity"] == "fail" for finding in findings):
+        return "fail"
+    if any(finding["severity"] == "minor" for finding in findings):
+        return "warning"
+    return "ok"
 
 
 def _compare_placement(
@@ -180,6 +206,36 @@ def _compare_placement(
         old_element["element"],
         f"element moved/resized beyond tolerance (shift {shift_delta}, resize {resize_delta})",
     )
+
+
+def _metric_finding(old_element: dict[str, Any], new_element: dict[str, Any]) -> dict[str, Any]:
+    old_bounds = old_element["bounds"]
+    new_bounds = new_element["bounds"]
+    metrics: dict[str, Any] = {
+        "kind": old_element["kind"],
+        "shift_delta": max(abs(old_bounds["left"] - new_bounds["left"]), abs(old_bounds["top"] - new_bounds["top"])),
+        "resize_delta": max(
+            abs(_width(old_bounds) - _width(new_bounds)),
+            abs(_height(old_bounds) - _height(new_bounds)),
+        ),
+        "old_bounds": old_bounds,
+        "new_bounds": new_bounds,
+    }
+    if old_element["kind"] == "picture":
+        old_image = _decoded_image(old_element["image_blob"])
+        new_image = _decoded_image(new_element["image_blob"])
+        metrics["old_picture_size"] = list(old_image.size)
+        metrics["new_picture_size"] = list(new_image.size)
+        metrics["picture_changed_percent"] = None
+        if old_image.size == new_image.size:
+            metrics["picture_changed_percent"] = _changed_pixel_percent(old_image, new_image)
+    return {
+        "severity": "ok",
+        "type": "measured_metrics",
+        "element": old_element["element"],
+        "message": "calibration metrics",
+        "metrics": metrics,
+    }
 
 
 def _off_slide(bounds: dict[str, int], slide_width: int, slide_height: int) -> bool:

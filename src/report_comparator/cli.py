@@ -15,12 +15,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", choices=["strict", "lenient"], help="Severity handling mode")
     parser.add_argument("--config", help="YAML config path")
     parser.add_argument("--out", help="Write JSON report to this path instead of stdout")
+    parser.add_argument("--quiet", action="store_true", default=None, help="Suppress accepted/minor report entries")
+    parser.add_argument("--calibrate", action="store_true", default=None, help="Emit measured metrics for all compared elements")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    config = load_config(args.config, {"mode": args.mode})
+    config = load_config(args.config, {"mode": args.mode, "quiet": args.quiet, "calibrate": args.calibrate})
     report = compare_runs(args.old, args.new, config)
     rendered = json.dumps(report, indent=2)
     if args.out:
