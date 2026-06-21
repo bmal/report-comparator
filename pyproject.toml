@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "report-comparator"
+version = "0.1.0"
+description = "Rendering-free PowerPoint regression comparator"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy",
+  "Pillow",
+  "python-pptx",
+  "PyYAML",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+report-comparator = "report_comparator.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
